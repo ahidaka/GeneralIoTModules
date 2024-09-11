@@ -23,6 +23,10 @@ static int debug = 0;
 module_param(debug, int, 0644);
 MODULE_PARM_DESC(debug, "Debug mode");
 
+//static int stop = 0;
+//module_param(stop, int, 0644);
+//MODULE_PARM_DESC(stop, "Stop flag");
+
 //static char *data = NULL;
 // module_param(data, charp, 0644); // これは不要になります
 //MODULE_PARM_DESC(data, "Data to receive");
@@ -78,16 +82,17 @@ static int receive_thread(void *arg)
     if (debug)
         printk(KERN_DEBUG "receive_thread: bound\n");
 
-    while(1) {
+    while(!kthread_should_stop()) {
         struct socket *client_sock;
 
         // リッスン
         ret = sock->ops->listen(sock, 1);
         if (ret < 0) {
             printk(KERN_ERR "Error listening on socket: %d\n", ret);
-            sock_release(sock);
-            kfree(temp_buffer);
-            return ret;
+            //sock_release(sock);
+            //kfree(temp_buffer);
+            //return ret;
+            continue;
         }
         if (debug) {
             printk(KERN_INFO "receive_thread: Listening on port %d\n", PORT);
@@ -97,9 +102,10 @@ static int receive_thread(void *arg)
         ret = kernel_accept(sock, &client_sock, 0);
         if (ret < 0) {
             printk(KERN_ERR "Error accepting connection: %d\n", ret);
-            sock_release(sock);
-            kfree(temp_buffer);
-            return ret;
+            //sock_release(sock);
+            //kfree(temp_buffer);
+            //return ret;
+            continue;
         }
         if (debug) {
             printk(KERN_INFO "receive_thread: Client connected\n");
@@ -116,10 +122,10 @@ static int receive_thread(void *arg)
             ret = kernel_recvmsg(client_sock, &msg, &iov, 1, PAGE_SIZE, 0);
             if (ret < 0) {
                 printk(KERN_ERR "Error receiving data: %d\n", ret);
-                if (client_sock) {
-                    sock_release(client_sock);
-                    client_sock = NULL;
-                }
+                //if (client_sock) {
+                //    sock_release(client_sock);
+                //    client_sock = NULL;
+                //}
                 break;
             }
 
@@ -145,7 +151,7 @@ static int receive_thread(void *arg)
                 printk(KERN_INFO "receive_thread: sys:%zu user:%zu memcpied %zu bytes\n",
                 sys_buffer_pos, user_buffer_pos, received_len);
             }
-    #if 0
+#if 0
             // 受信が5秒間途切れたら完了
             if (received_len == 0) {
                 msleep(RECV_WAIT_TIMEOUT * 1000);
@@ -158,7 +164,7 @@ static int receive_thread(void *arg)
                 }
                 break;
             }
-    #endif
+#endif
             if (received_len == 0) {
                 if (debug)
                     printk(KERN_DEBUG "receive_len == 0\n");
@@ -182,8 +188,15 @@ static int receive_thread(void *arg)
             sock_release(client_sock);
             client_sock = NULL;
         }
+        schedule();
+    }
+    // ソケットの解放
+    if (sock) {
+        sock_release(sock);
+        sock = NULL;
     }
 
+    // バッファの解放
     if (temp_buffer)
         kfree(temp_buffer);
 
@@ -229,6 +242,54 @@ static const struct kernel_param_ops data_ops = {
 module_param_cb(data, &data_ops, &g_buffer, 0644);
 MODULE_PARM_DESC(data, "Received data buffer");
 
+// sysfsにデータを書き出すコールバック
+static int set_stop_param(const char *buffer, const struct kernel_param *kp)
+{
+    int stop_flag;
+    stop_flag = param_set_int(buffer, kp);
+    if (debug) {
+        printk(KERN_DEBUG "set_stop_param: Copy %p = %d\n", kp->name, stop_flag);
+    }
+    if (stop_flag == 1) {
+        if (debug)
+            printk(KERN_DEBUG "set_stop_param: Stop flag set\n");
+        if (recv_thread) {
+            kthread_stop(recv_thread);
+            printk(KERN_INFO "Receive thread stopped\n");
+            recv_thread = NULL;
+        }
+    }
+    return 0;
+}
+
+#if 0
+// sysfsからデータを読み出すコールバック
+static int get_stop_param(char *buffer, const struct kernel_param *kp)
+{
+    size_t to_copy = min(sys_buffer_pos, (size_t)PAGE_SIZE); //end of copy position
+
+    if (debug) {
+        printk(KERN_DEBUG "get_data_param: buffer %p to_copy = %zu user %zu end %zu\n",
+        buffer, to_copy, user_buffer_pos, sys_buffer_pos);
+    }
+    memcpy(buffer, g_buffer + user_buffer_pos, to_copy);
+    user_buffer_pos += to_copy;
+    
+    if (debug) {
+        printk(KERN_DEBUG "get_data_param: Copied %zu bytes\n", to_copy);
+    }
+    return to_copy;
+}
+#endif
+
+static const struct kernel_param_ops stop_ops = {
+    .set = set_stop_param,
+    //.get = get_stop_param,
+};
+
+module_param_cb(stop, &stop_ops, NULL, 0644);
+MODULE_PARM_DESC(stop, "Stop flag");
+
 static int __init receive_module_init(void)
 {
     printk(KERN_INFO "Receive module loaded\n");
@@ -252,11 +313,17 @@ static int __init receive_module_init(void)
 
 static void __exit receive_module_exit(void)
 {
+    if (debug)
+        printk(KERN_DEBUG "Receive module_exit start\n");
+
     // スレッドの停止
     if (recv_thread) {
         kthread_stop(recv_thread);
         printk(KERN_INFO "Receive thread stopped\n");
     }
+
+    if (debug)
+        printk(KERN_DEBUG "Receive thread stopped\n");
 
     // ソケットの解放
     if (sock) {
@@ -264,6 +331,9 @@ static void __exit receive_module_exit(void)
         printk(KERN_INFO "Socket released\n");
         sock = NULL;
     }
+
+    if (debug)
+        printk(KERN_DEBUG "Receive socket released\n");
 
     // バッファの解放
     if (g_buffer) {
