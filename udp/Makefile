@@ -3,7 +3,7 @@ obj-m += send_udp.o
 obj-m += receive_udp.o
 APPS = receive_udp_app
 
-KDIR := /lib/modules/$(shell uname -r)/build
+#KDIR := /lib/modules/$(shell uname -r)/build
 PWD := $(shell pwd)
 
 # default target
