@@ -9,7 +9,8 @@
 #include <errno.h>
 
 #define PORT 8808
-#define BUFFER_SIZE (4 * 1024 * 1024 * 1024UL) // 4GB
+//#define BUFFER_SIZE (4 * 1024 * 1024 * 1024UL) // 4GB
+#define BUFFER_SIZE (32 * 1024UL) // 32KB
 #define PAGE_SIZE 4096
 #define TIMEOUT 5 // 5 seconds
 

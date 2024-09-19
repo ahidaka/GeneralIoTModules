@@ -22,7 +22,8 @@ module_param(debug, int, 0644);
 MODULE_PARM_DESC(debug, "Debug mode");
 //module_param(stop, int, 0644);
 
-#define BUFFER_SIZE (4 * 1024 * 1024 * 1024UL) // 4GB
+//#define BUFFER_SIZE (4 * 1024 * 1024 * 1024UL) // 4GB
+#define BUFFER_SIZE (32 * 1024UL) // 32KB
 #ifndef PAGE_SIZE
 #define PAGE_SIZE 4096
 #endif
